@@ -244,8 +244,8 @@ elif app_mode == "📊 2. データ解析 (ANOVA)":
         with col1:
             target_col = st.selectbox("目的変数（数値データ）", cols, index=len(cols)-1)
         with col2:
-            factor_cols = st.multiselect("主効果とする要因（複数選択可）", [c for c in cols if c != target_col], default=cols[:-1])
-
+            available_factors = [c for c in cols if c != target_col]
+factor_cols = st.multiselect("主効果とする要因（複数選択可）", available_factors, default=available_factors)
         possible_interactions = []
         if len(factor_cols) >= 2:
             possible_interactions = list(itertools.combinations(factor_cols, 2))
