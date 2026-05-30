@@ -16,6 +16,12 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
 
+try:
+    from help_text import render_help_section
+    HELP_AVAILABLE = True
+except ImportError:
+    HELP_AVAILABLE = False
+
 # ==========================================
 # 共通設定・関数
 # ==========================================
@@ -207,6 +213,10 @@ st.sidebar.divider()
 st.sidebar.info("💡 **使い方**\n\n"
                 "1. 「調査様式作成」で整然データのテンプレートを作り、データを入力します。\n"
                 "2. 「データ解析」にそのデータを貼り付けることで、すぐに解析が可能です。")
+st.sidebar.divider()
+if HELP_AVAILABLE:
+    with st.sidebar:
+        render_help_section()
 
 # ==========================================
 # モード1: PlotBuilder (様式作成)
