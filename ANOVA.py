@@ -167,9 +167,10 @@ def build_multi_excel_report(results_dict, ss_type):
 # UI および モード分岐
 # ==========================================
 st.sidebar.title("🌱 メニュー")
-app_mode = st.sidebar.radio("機能を選択", ["📝 1. 調査様式作成", "📊 2. データ解析"])
-if HELP_AVAILABLE:
-    with st.sidebar: render_help_section()
+app_mode = st.sidebar.radio(
+    "機能を選択",
+    ["📝 1. 調査様式作成", "📊 2. データ解析", "📖 3. 用語説明"]
+)
 
 # ------------------------------------------
 # モード1: 調査様式作成 (PlotBuilder)
@@ -179,66 +180,82 @@ if app_mode == "📝 1. 調査様式作成":
     st.markdown("栽培試験の区割りや調査様式（Tidy Data形式）を生成します。作成したファイルはそのまま解析モードで利用できます。")
 
     with st.form("plot_builder_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("📝 試験区の設定")
-            n_reps = st.number_input("反復数 (Rep)", min_value=1, max_value=20, value=3)
-            factor1_name = st.text_input("要因1の名前 (例: 品種)", value="品種")
-            factor1_levels = st.text_input("要因1の水準 (カンマ区切りで入力)", value="シマアカリ, ニシユタカ, アイユタカ")
-        with col2:
-            st.subheader("➕ 追加の要因・調査項目")
-            factor2_name = st.text_input("要因2の名前 (任意・例: 施肥量)", value="施肥量")
-            factor2_levels = st.text_input("要因2の水準 (任意・カンマ区切り)", value="少肥, 標準, 多肥")
+        st.subheader("📝 試験区と多要因の設定")
+        n_reps = st.number_input("反復数 (Rep)", min_value=1, max_value=20, value=3)
+        
+        st.markdown("使用する要因の名前と水準を入力してください。**（不要な要因欄は空欄のままにすると自動で無視されます）**")
+        
+        factor_inputs = []
+        for i in range(1, 6): # 最大5要因まで動的に対応
+            col1, col2 = st.columns(2)
+            with col1:
+                # デフォルト値として1つ目に「品種」、2つ目に「施肥量」を入れておく
+                default_name = "品種" if i == 1 else ("施肥量" if i == 2 else "")
+                fname = st.text_input(f"要因{i}の名前", value=default_name, key=f"fname_{i}")
+            with col2:
+                default_levels = "シマアカリ, ニシユタカ, アイユタカ" if i == 1 else ("少肥, 標準, 多肥" if i == 2 else "")
+                flevels = st.text_input(f"要因{i}の水準 (カンマ区切り)", value=default_levels, key=f"flevels_{i}")
+            factor_inputs.append((fname, flevels))
             
+        st.subheader("➕ 調査項目の設定")
         target_cols_input = st.text_input("調査項目 (カンマ区切りで入力)", value="総収量_kg, 上いも数_個, 規格内率_パーセント, 備考")
         is_random = st.checkbox("区画順（行）をランダムに配置する", value=True)
         
         submit_btn = st.form_submit_button("✨ 様式を生成する")
 
     if submit_btn:
-        f1_list = [x.strip() for x in factor1_levels.split(",") if x.strip()]
-        f2_list = [x.strip() for x in factor2_levels.split(",") if x.strip()]
         targets = [x.strip() for x in target_cols_input.split(",") if x.strip()]
-
-        # 組み合わせの生成
-        if factor2_name and f2_list:
-            combinations = list(itertools.product(range(1, n_reps + 1), f1_list, f2_list))
-            df_plot = pd.DataFrame(combinations, columns=["反復", factor1_name, factor2_name])
-        else:
-            combinations = list(itertools.product(range(1, n_reps + 1), f1_list))
-            df_plot = pd.DataFrame(combinations, columns=["反復", factor1_name])
-
-        # ランダム化またはソート
-        if is_random:
-            df_plot = df_plot.sample(frac=1).reset_index(drop=True)
-        else:
-            df_plot = df_plot.sort_values(by=["反復", factor1_name]).reset_index(drop=True)
-
-        df_plot.insert(0, "区画番号", range(1, len(df_plot) + 1))
-
-        # 調査項目の空列を追加
-        for t in targets:
-            df_plot[t] = ""
-
-        st.success("✅ 調査様式を生成しました。データを入力後、「2. データ解析」モードに貼り付けてください。")
-        st.dataframe(df_plot, use_container_width=True)
-
-        # ダウンロード用データの準備
-        col_dl1, col_dl2 = st.columns(2)
-        with col_dl1:
-            csv = df_plot.to_csv(index=False).encode('utf-8-sig')
-            st.download_button(label="📥 CSV形式でダウンロード", data=csv, file_name="plot_template.csv", mime="text/csv")
         
-        with col_dl2:
-            wb_tpl = openpyxl.Workbook()
-            ws_tpl = wb_tpl.active
-            ws_tpl.append(df_plot.columns.tolist())
-            for r in df_plot.values:
-                ws_tpl.append(r.tolist())
-            buf_tpl = io.BytesIO()
-            wb_tpl.save(buf_tpl)
-            excel_data = buf_tpl.getvalue()
-            st.download_button(label="📥 Excel形式でダウンロード", data=excel_data, file_name="plot_template.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        # 空欄を無視して有効な要因だけを抽出
+        valid_factors = {}
+        for fname, flevels in factor_inputs:
+            name = fname.strip()
+            if name:
+                levels = [x.strip() for x in flevels.split(",") if x.strip()]
+                if levels:
+                    valid_factors[name] = levels
+
+        if not valid_factors:
+            st.error("少なくとも1つの要因を設定してください。")
+        else:
+            factor_names = list(valid_factors.keys())
+            factor_levels = list(valid_factors.values())
+
+            # 組み合わせの生成 (itertools.productにより入力順を維持したまま全要因を掛け合わせ)
+            combinations = list(itertools.product(range(1, n_reps + 1), *factor_levels))
+            
+            # DataFrame作成
+            df_plot = pd.DataFrame(combinations, columns=["反復"] + factor_names)
+
+            # ランダム化がオンの場合のみシャッフル（オフの場合はそのまま維持）
+            if is_random:
+                df_plot = df_plot.sample(frac=1).reset_index(drop=True)
+
+            df_plot.insert(0, "区画番号", range(1, len(df_plot) + 1))
+
+            # 調査項目の空列を追加
+            for t in targets:
+                df_plot[t] = ""
+
+            st.success(f"✅ {len(valid_factors)}要因の調査様式を生成しました。")
+            st.dataframe(df_plot, use_container_width=True)
+
+            # ダウンロード用データの準備
+            col_dl1, col_dl2 = st.columns(2)
+            with col_dl1:
+                csv = df_plot.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(label="📥 CSV形式でダウンロード", data=csv, file_name="plot_template.csv", mime="text/csv")
+            
+            with col_dl2:
+                wb_tpl = openpyxl.Workbook()
+                ws_tpl = wb_tpl.active
+                ws_tpl.append(df_plot.columns.tolist())
+                for r in df_plot.values:
+                    ws_tpl.append(r.tolist())
+                buf_tpl = io.BytesIO()
+                wb_tpl.save(buf_tpl)
+                excel_data = buf_tpl.getvalue()
+                st.download_button(label="📥 Excel形式でダウンロード", data=excel_data, file_name="plot_template.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 # ------------------------------------------
 # モード2: データ解析
@@ -292,9 +309,6 @@ elif app_mode == "📊 2. データ解析":
             available_factors = [c for c in cols if c not in target_cols and c != "備考" and c != "区画番号"]
             factor_cols = st.multiselect("主効果とする要因", available_factors, default=available_factors)
 
-        # ---------------------------------------------
-        # 🌟 データ変換 UI追加
-        # ---------------------------------------------
         st.markdown("#### 📐 データ変換設定 (オプション)")
         st.info("カウントデータ(個数など)や割合データ(％)を正規分布に近づけるための変数変換を指定します。")
         transformation_dict = {}
@@ -312,11 +326,19 @@ elif app_mode == "📊 2. データ解析":
 
         ss_type = st.radio("平方和のタイプ", [2, 3], format_func=lambda x: f"Type {x}", horizontal=True)
 
-        selected_interactions = []
+        # ---------------------------------------------
+        # 多要因の交互作用を動的生成 (2因子以上)
+        # ---------------------------------------------
+        selected_interactions_parsed = []
         if len(factor_cols) >= 2:
-            interaction_labels = [f"{c[0]} × {c[1]}" for c in itertools.combinations(factor_cols, 2)]
-            selected_int = st.multiselect("考慮する交互作用", interaction_labels, default=[])
-            selected_interactions = [tuple(x.split(" × ")) for x in selected_int]
+            all_interactions = []
+            # 2次、3次... と選ばれた要因数までの組み合わせを生成
+            for r in range(2, len(factor_cols) + 1):
+                for combo in itertools.combinations(factor_cols, r):
+                    all_interactions.append(" × ".join(combo))
+            
+            selected_int = st.multiselect("考慮する交互作用", all_interactions, default=[])
+            selected_interactions_parsed = [tuple(x.split(" × ")) for x in selected_int]
 
         rep_candidates = [c for c in factor_cols if '反復' in c or 'rep' in c.lower() or 'Rep' in c]
 
@@ -324,7 +346,7 @@ elif app_mode == "📊 2. データ解析":
             st.session_state.analyzed = True
             st.session_state.target_cols = target_cols
             st.session_state.factor_cols = factor_cols
-            st.session_state.selected_interactions = selected_interactions
+            st.session_state.selected_interactions = selected_interactions_parsed
             st.session_state.ss_type = ss_type
 
             results_dict = {}
@@ -336,24 +358,22 @@ elif app_mode == "📊 2. データ解析":
                 df_eval[t_col] = pd.to_numeric(df_eval[t_col], errors='coerce')
                 df_eval = df_eval.dropna(subset=[t_col] + factor_cols)
 
-                # ---------------------------------------------
-                # 🌟 変換ロジックの適用
-                # ---------------------------------------------
                 if "対数変換" in trans_type:
                     eval_col = f"{t_col}_Log10"
                     df_eval[eval_col] = np.log10(df_eval[t_col] + 0.5)
                 elif "アークサイン変換" in trans_type:
                     eval_col = f"{t_col}_Arcsin"
-                    # 0-100の%データを想定。0-1に収めてから変換、出力は角度(°)
                     val_prop = np.clip(df_eval[t_col] / 100.0, 0.0, 1.0)
                     df_eval[eval_col] = np.degrees(np.arcsin(np.sqrt(val_prop)))
 
                 for f in factor_cols:
                     df_eval[f] = df_eval[f].astype(str)
 
+                # モデル式の構築（多要因対応）
                 formula_terms = [f'C(Q("{f}"))' for f in factor_cols]
-                for f1, f2 in selected_interactions:
-                    formula_terms.append(f'C(Q("{f1}")):C(Q("{f2}"))')
+                for combo in selected_interactions_parsed:
+                    term = ":".join([f'C(Q("{c}"))' for c in combo])
+                    formula_terms.append(term)
                 formula = f'Q("{eval_col}") ~ ' + ' + '.join(formula_terms)
 
                 anova_success = False
@@ -384,7 +404,6 @@ elif app_mode == "📊 2. データ解析":
                     summary_stats = df_eval.groupby(factor)[eval_col].agg(['count', 'mean', 'std']).reset_index()
                     summary_stats.rename(columns={'count': 'N', 'mean': '平均値(変換後)', 'std': '標準偏差(変換後)'}, inplace=True)
                     
-                    # 参考値として変換前のオリジナル平均も結合
                     if eval_col != t_col:
                         orig_mean = df_eval.groupby(factor)[t_col].mean().reset_index()
                         orig_mean.rename(columns={t_col: '平均値(オリジナル)'}, inplace=True)
@@ -481,10 +500,14 @@ elif app_mode == "📊 2. データ解析":
                         plt.close(fig_box)
 
             with tab3:
-                if s_ints and anova_success:
+                # グラフ描画は2次元に限定されるため、2因子間の交互作用のみ選択可能にする
+                int_options_2way = [f"{c[0]} × {c[1]}" for c in s_ints if len(c) == 2]
+                if int_options_2way and anova_success:
                     st.header(f"3. 交互作用図 - 【{eval_col}】")
-                    int_options = [f"{c[0]} × {c[1]}" for c in s_ints]
-                    selected_int_plot = st.selectbox("グラフ化する交互作用", int_options, key=f"int_sel_{t_col}")
+                    if len(s_ints) > len(int_options_2way):
+                        st.info("※ グラフ描画は2因子の交互作用のみ対応しています（3因子以上の交互作用を選択した場合はグラフ化をスキップします）。")
+                    
+                    selected_int_plot = st.selectbox("グラフ化する交互作用", int_options_2way, key=f"int_sel_{t_col}")
                     plot_x, plot_hue = selected_int_plot.split(" × ")
                     if st.toggle("X軸と色分けを入れ替え", key=f"tog_{t_col}"): plot_x, plot_hue = plot_hue, plot_x
 
@@ -523,3 +546,13 @@ elif app_mode == "📊 2. データ解析":
                         for _, r in dd['report'].iterrows():
                             lines.append(f"  - {r[factor]}: {r['平均値(変換後)']:.1f} [{r['有意差']}] (元データ平均: {r.get('平均値(オリジナル)', r['平均値(変換後)']):.1f})")
                     st.code("\n".join(lines), language="markdown")
+
+# ------------------------------------------
+# モード3: 用語説明
+# ------------------------------------------
+elif app_mode == "📖 3. 用語説明":
+    if HELP_AVAILABLE:
+        from help_text import render_glossary_page
+        render_glossary_page()
+    else:
+        st.warning("help_text.py が見つかりません。")
