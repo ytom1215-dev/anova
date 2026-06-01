@@ -171,11 +171,78 @@ app_mode = st.sidebar.radio("機能を選択", ["📝 1. 調査様式作成", "�
 if HELP_AVAILABLE:
     with st.sidebar: render_help_section()
 
+# ------------------------------------------
+# モード1: 調査様式作成 (PlotBuilder)
+# ------------------------------------------
 if app_mode == "📝 1. 調査様式作成":
     st.title("📝 PlotBuilder - 調査データ様式ジェネレーター")
-    # 様式作成ブロック（前回のコードと同じため省略・実装済みのものをご利用ください）
-    st.info("データ解析モードを選択してください。")
+    st.markdown("栽培試験の区割りや調査様式（Tidy Data形式）を生成します。作成したファイルはそのまま解析モードで利用できます。")
 
+    with st.form("plot_builder_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("📝 試験区の設定")
+            n_reps = st.number_input("反復数 (Rep)", min_value=1, max_value=20, value=3)
+            factor1_name = st.text_input("要因1の名前 (例: 品種)", value="品種")
+            factor1_levels = st.text_input("要因1の水準 (カンマ区切りで入力)", value="シマアカリ, ニシユタカ, アイユタカ")
+        with col2:
+            st.subheader("➕ 追加の要因・調査項目")
+            factor2_name = st.text_input("要因2の名前 (任意・例: 施肥量)", value="施肥量")
+            factor2_levels = st.text_input("要因2の水準 (任意・カンマ区切り)", value="少肥, 標準, 多肥")
+            
+        target_cols_input = st.text_input("調査項目 (カンマ区切りで入力)", value="総収量_kg, 上いも数_個, 規格内率_パーセント, 備考")
+        is_random = st.checkbox("区画順（行）をランダムに配置する", value=True)
+        
+        submit_btn = st.form_submit_button("✨ 様式を生成する")
+
+    if submit_btn:
+        f1_list = [x.strip() for x in factor1_levels.split(",") if x.strip()]
+        f2_list = [x.strip() for x in factor2_levels.split(",") if x.strip()]
+        targets = [x.strip() for x in target_cols_input.split(",") if x.strip()]
+
+        # 組み合わせの生成
+        if factor2_name and f2_list:
+            combinations = list(itertools.product(range(1, n_reps + 1), f1_list, f2_list))
+            df_plot = pd.DataFrame(combinations, columns=["反復", factor1_name, factor2_name])
+        else:
+            combinations = list(itertools.product(range(1, n_reps + 1), f1_list))
+            df_plot = pd.DataFrame(combinations, columns=["反復", factor1_name])
+
+        # ランダム化またはソート
+        if is_random:
+            df_plot = df_plot.sample(frac=1).reset_index(drop=True)
+        else:
+            df_plot = df_plot.sort_values(by=["反復", factor1_name]).reset_index(drop=True)
+
+        df_plot.insert(0, "区画番号", range(1, len(df_plot) + 1))
+
+        # 調査項目の空列を追加
+        for t in targets:
+            df_plot[t] = ""
+
+        st.success("✅ 調査様式を生成しました。データを入力後、「2. データ解析」モードに貼り付けてください。")
+        st.dataframe(df_plot, use_container_width=True)
+
+        # ダウンロード用データの準備
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            csv = df_plot.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(label="📥 CSV形式でダウンロード", data=csv, file_name="plot_template.csv", mime="text/csv")
+        
+        with col_dl2:
+            wb_tpl = openpyxl.Workbook()
+            ws_tpl = wb_tpl.active
+            ws_tpl.append(df_plot.columns.tolist())
+            for r in df_plot.values:
+                ws_tpl.append(r.tolist())
+            buf_tpl = io.BytesIO()
+            wb_tpl.save(buf_tpl)
+            excel_data = buf_tpl.getvalue()
+            st.download_button(label="📥 Excel形式でダウンロード", data=excel_data, file_name="plot_template.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+# ------------------------------------------
+# モード2: データ解析
+# ------------------------------------------
 elif app_mode == "📊 2. データ解析":
     st.title("📊 栽培試験データ 多要因分散分析＆成績書作成ツール")
 
@@ -219,10 +286,10 @@ elif app_mode == "📊 2. データ解析":
         cols = df_real.columns.tolist()
         col1, col2 = st.columns(2)
         with col1:
-            default_targets = [c for c in cols if df_real[c].dtype in [np.float64, np.int64] and c not in ["反復", "rep"]]
+            default_targets = [c for c in cols if df_real[c].dtype in [np.float64, np.int64] and c not in ["反復", "rep", "区画番号"]]
             target_cols = st.multiselect("目的変数（複数可）", cols, default=default_targets)
         with col2:
-            available_factors = [c for c in cols if c not in target_cols and c != "備考"]
+            available_factors = [c for c in cols if c not in target_cols and c != "備考" and c != "区画番号"]
             factor_cols = st.multiselect("主効果とする要因", available_factors, default=available_factors)
 
         # ---------------------------------------------
