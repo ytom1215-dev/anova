@@ -45,6 +45,11 @@ def set_japanese_font():
 set_japanese_font()
 
 def get_cld_letters(groups_sorted, tukey_df):
+    """
+    Bron-Kerboschアルゴリズムを用いて極大クリークを抽出し、
+    統計学的に正しいCLD（Compact Letter Display）を生成する
+    """
+    # 1. 有意差のない（ns）ペアを対称グラフの隣接関係として保持
     ns_pairs = set()
     for _, row in tukey_df.iterrows():
         g1, g2 = str(row['group1']), str(row['group2'])
@@ -54,20 +59,32 @@ def get_cld_letters(groups_sorted, tukey_df):
     for g in groups_sorted:
         ns_pairs.add((g, g))
 
+    # 2. Bron-Kerbosch法による極大クリーク（互いにすべてnsである最大のまとまり）の探索
+    cliques = []
+    def bron_kerbosch(r, p, x):
+        if not p and not x:
+            cliques.append(r)
+            return
+        for v in list(p):
+            neighbors = {u for u in groups_sorted if (v, u) in ns_pairs}
+            bron_kerbosch(r | {v}, p & neighbors, x & neighbors)
+            p.remove(v)
+            x.add(v)
+
+    bron_kerbosch(set(), set(groups_sorted), set())
+
+    # 3. クリークを平均値順（groups_sortedのインデックス順）にソート
+    # これにより、平均値が高いグループが含まれるクリークから順に 'a', 'b', 'c' が割り当てられる
+    cliques.sort(key=lambda c: min(groups_sorted.index(g) for g in c))
+
+    # 4. 各グループへのアルファベットの割り当て
     letters = {g: [] for g in groups_sorted}
-    letter_groups = []
-    current_idx = 0
+    for idx, clique in enumerate(cliques):
+        letter = chr(ord('a') + (idx % 26))  # 26因子以上は滅多にないが念のため循環
+        for g in clique:
+            letters[g].append(letter)
 
-    for gi in groups_sorted:
-        absorb = [gj for gj in groups_sorted if (gi, gj) in ns_pairs]
-        matched = any(set(lg) == set(absorb) for lg in letter_groups)
-        if not matched:
-            new_letter = chr(ord('a') + current_idx)
-            current_idx += 1
-            letter_groups.append(absorb)
-            for g in absorb:
-                letters[g].append(new_letter)
-
+    # 5. 重複を排除してソートした文字列を結合して返す
     return {g: ''.join(sorted(set(v))) for g, v in letters.items()}
 
 def tukey_from_anova_model(model, factor, df, target):
@@ -166,7 +183,7 @@ def build_multi_excel_report(results_dict, ss_type):
 # ==========================================
 # UI および モード分岐
 # ==========================================
-st.sidebar.title("🌱 メメニュー")
+st.sidebar.title("🌱 メニュー")
 app_mode = st.sidebar.radio(
     "機能を選択",
     ["📝 1. 調査様式作成", "📊 2. データ解析", "📖 3. 用語説明"]
