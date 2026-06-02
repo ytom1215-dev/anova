@@ -47,44 +47,42 @@ set_japanese_font()
 def get_cld_letters(groups_sorted, tukey_df):
     """
     Bron-Kerboschアルゴリズムを用いて極大クリークを抽出し、
-    統計学的に正しいCLD（Compact Letter Display）を生成する
+    統計学的に正しいCLD（Compact Letter Display）を生成する（無限ループ修正版）
     """
-    # 1. 有意差のない（ns）ペアを対称グラフの隣接関係として保持
-    ns_pairs = set()
+    # 1. 有意差のない（ns）ペアを隣接関係として保持（自己ループは含めない）
+    adj = {g: set() for g in groups_sorted}
     for _, row in tukey_df.iterrows():
         g1, g2 = str(row['group1']), str(row['group2'])
         if not row['reject']:
-            ns_pairs.add((g1, g2))
-            ns_pairs.add((g2, g1))
-    for g in groups_sorted:
-        ns_pairs.add((g, g))
+            if g1 in adj and g2 in adj:
+                adj[g1].add(g2)
+                adj[g2].add(g1)
 
-    # 2. Bron-Kerbosch法による極大クリーク（互いにすべてnsである最大のまとまり）の探索
+    # 2. Bron-Kerbosch法による極大クリークの探索
     cliques = []
     def bron_kerbosch(r, p, x):
         if not p and not x:
             cliques.append(r)
             return
         for v in list(p):
-            neighbors = {u for u in groups_sorted if (v, u) in ns_pairs}
-            bron_kerbosch(r | {v}, p & neighbors, x & neighbors)
+            n_v = adj[v]
+            # 再帰時に p & n_v とすることで、自分自身(v)が確実に排除され、無限ループを回避します
+            bron_kerbosch(r | {v}, p & n_v, x & n_v)
             p.remove(v)
             x.add(v)
 
     bron_kerbosch(set(), set(groups_sorted), set())
 
     # 3. クリークを平均値順（groups_sortedのインデックス順）にソート
-    # これにより、平均値が高いグループが含まれるクリークから順に 'a', 'b', 'c' が割り当てられる
     cliques.sort(key=lambda c: min(groups_sorted.index(g) for g in c))
 
     # 4. 各グループへのアルファベットの割り当て
     letters = {g: [] for g in groups_sorted}
     for idx, clique in enumerate(cliques):
-        letter = chr(ord('a') + (idx % 26))  # 26因子以上は滅多にないが念のため循環
+        letter = chr(ord('a') + (idx % 26))
         for g in clique:
             letters[g].append(letter)
 
-    # 5. 重複を排除してソートした文字列を結合して返す
     return {g: ''.join(sorted(set(v))) for g, v in letters.items()}
 
 def tukey_from_anova_model(model, factor, df, target):
