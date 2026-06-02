@@ -166,7 +166,7 @@ def build_multi_excel_report(results_dict, ss_type):
 # ==========================================
 # UI および モード分岐
 # ==========================================
-st.sidebar.title("🌱 メニュー")
+st.sidebar.title("🌱 メメニュー")
 app_mode = st.sidebar.radio(
     "機能を選択",
     ["📝 1. 調査様式作成", "📊 2. データ解析", "📖 3. 用語説明"]
@@ -189,7 +189,6 @@ if app_mode == "📝 1. 調査様式作成":
         for i in range(1, 6): # 最大5要因まで動的に対応
             col1, col2 = st.columns(2)
             with col1:
-                # デフォルト値として1つ目に「品種」、2つ目に「施肥量」を入れておく
                 default_name = "品種" if i == 1 else ("施肥量" if i == 2 else "")
                 fname = st.text_input(f"要因{i}の名前", value=default_name, key=f"fname_{i}")
             with col2:
@@ -206,7 +205,6 @@ if app_mode == "📝 1. 調査様式作成":
     if submit_btn:
         targets = [x.strip() for x in target_cols_input.split(",") if x.strip()]
         
-        # 空欄を無視して有効な要因だけを抽出
         valid_factors = {}
         for fname, flevels in factor_inputs:
             name = fname.strip()
@@ -221,26 +219,21 @@ if app_mode == "📝 1. 調査様式作成":
             factor_names = list(valid_factors.keys())
             factor_levels = list(valid_factors.values())
 
-            # 組み合わせの生成 (itertools.productにより入力順を維持したまま全要因を掛け合わせ)
             combinations = list(itertools.product(range(1, n_reps + 1), *factor_levels))
             
-            # DataFrame作成
             df_plot = pd.DataFrame(combinations, columns=["反復"] + factor_names)
 
-            # ランダム化がオンの場合のみシャッフル（オフの場合はそのまま維持）
             if is_random:
                 df_plot = df_plot.sample(frac=1).reset_index(drop=True)
 
             df_plot.insert(0, "区画番号", range(1, len(df_plot) + 1))
 
-            # 調査項目の空列を追加
             for t in targets:
                 df_plot[t] = ""
 
             st.success(f"✅ {len(valid_factors)}要因の調査様式を生成しました。")
             st.dataframe(df_plot, use_container_width=True)
 
-            # ダウンロード用データの準備
             col_dl1, col_dl2 = st.columns(2)
             with col_dl1:
                 csv = df_plot.to_csv(index=False).encode('utf-8-sig')
@@ -277,11 +270,9 @@ elif app_mode == "📊 2. データ解析":
             if v == 'シマアカリ': base_y += 40
             if f == '多肥': base_y += 60
             if v == 'シマアカリ' and f == '多肥': base_y += 50
-            # 個数（ポアソン分布）
             base_t = 10
             if v == 'シマアカリ': base_t += 1
             tubers = np.random.poisson(lam=max(1, base_t))
-            # 割合（二項分布的に。多肥だと規格内率低下とする）
             rate = 85
             if f == '多肥': rate -= 15
             market_rate = np.clip(np.random.normal(rate, 5), 0, 100)
@@ -304,10 +295,20 @@ elif app_mode == "📊 2. データ解析":
         col1, col2 = st.columns(2)
         with col1:
             default_targets = [c for c in cols if df_real[c].dtype in [np.float64, np.int64] and c not in ["反復", "rep", "区画番号"]]
-            target_cols = st.multiselect("目的変数（複数可）", cols, default=default_targets)
+            target_cols = st.multiselect(
+                "目的変数（複数可）", 
+                cols, 
+                default=default_targets,
+                help="💡 項目選択後、メニューを閉じるには画面の余白をクリックするか、Escキーを押してください。"
+            )
         with col2:
             available_factors = [c for c in cols if c not in target_cols and c != "備考" and c != "区画番号"]
-            factor_cols = st.multiselect("主効果とする要因", available_factors, default=available_factors)
+            factor_cols = st.multiselect(
+                "主効果とする要因", 
+                available_factors, 
+                default=available_factors,
+                help="💡 項目選択後、メニューを閉じるには画面の余白をクリックするか、Escキーを押してください。"
+            )
 
         st.markdown("#### 📐 データ変換設定 (オプション)")
         st.info("カウントデータ(個数など)や割合データ(％)を正規分布に近づけるための変数変換を指定します。")
@@ -326,13 +327,9 @@ elif app_mode == "📊 2. データ解析":
 
         ss_type = st.radio("平方和のタイプ", [2, 3], format_func=lambda x: f"Type {x}", horizontal=True)
 
-        # ---------------------------------------------
-        # 多要因の交互作用を動的生成 (2因子以上)
-        # ---------------------------------------------
         selected_interactions_parsed = []
         if len(factor_cols) >= 2:
             all_interactions = []
-            # 2次、3次... と選ばれた要因数までの組み合わせを生成
             for r in range(2, len(factor_cols) + 1):
                 for combo in itertools.combinations(factor_cols, r):
                     all_interactions.append(" × ".join(combo))
@@ -369,7 +366,6 @@ elif app_mode == "📊 2. データ解析":
                 for f in factor_cols:
                     df_eval[f] = df_eval[f].astype(str)
 
-                # モデル式の構築（多要因対応）
                 formula_terms = [f'C(Q("{f}"))' for f in factor_cols]
                 for combo in selected_interactions_parsed:
                     term = ":".join([f'C(Q("{c}"))' for c in combo])
@@ -500,7 +496,6 @@ elif app_mode == "📊 2. データ解析":
                         plt.close(fig_box)
 
             with tab3:
-                # グラフ描画は2次元に限定されるため、2因子間の交互作用のみ選択可能にする
                 int_options_2way = [f"{c[0]} × {c[1]}" for c in s_ints if len(c) == 2]
                 if int_options_2way and anova_success:
                     st.header(f"3. 交互作用図 - 【{eval_col}】")
