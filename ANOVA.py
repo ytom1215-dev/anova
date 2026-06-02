@@ -66,7 +66,7 @@ def get_cld_letters(groups_sorted, tukey_df):
             return
         for v in list(p):
             n_v = adj[v]
-            # 再帰時に p & n_v とすることで、自分自身(v)が確実に排除され、無限ループを回避します
+            # 再帰時に p & n_v / x & n_v とすることで、自分自身(v)が確実に排除され、無限ループを回避します
             bron_kerbosch(r | {v}, p & n_v, x & n_v)
             p.remove(v)
             x.add(v)
@@ -172,7 +172,13 @@ def build_multi_excel_report(results_dict, ss_type):
             ws_tukey.cell(row=2, column=1, value=f"変換方法: {res['trans_type']}")
             ws_tukey.cell(row=3, column=1, value="※ 同じ文字を持つ水準間に有意差なし（Tukey法, α=0.05）")
 
-    wb.remove(ws_dummy)
+    # 他のシートが追加されていればダミーを削除し、なければダミーをエラー通知用にしてIndexErrorを回避
+    if len(wb.sheetnames) > 1:
+        wb.remove(ws_dummy)
+    else:
+        ws_dummy.title = "出力エラー"
+        ws_dummy.cell(row=1, column=1, value="出力できる有効な解析結果がありませんでした（ANOVAがエラーになった可能性があります）。")
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
