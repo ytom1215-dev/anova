@@ -400,6 +400,12 @@ elif app_mode == "📊 2. データ解析":
                 try:
                     model = ols(formula, data=df_eval).fit()
                     anova_res = anova_lm(model, typ=ss_type)
+
+                    # Type 3 では切片(Intercept)の行が結果に含まれるが、
+                    # 処理効果による変動ではないため、寄与率(%)の算出・表示対象から除外する
+                    # （Type 2 など Intercept 行が存在しない場合は errors='ignore' により何もしない）
+                    anova_res = anova_res.drop(index='Intercept', errors='ignore')
+
                     anova_res['mean_sq'] = anova_res['sum_sq'] / anova_res['df']
                     anova_res['寄与率(%)'] = (anova_res['sum_sq'] / anova_res['sum_sq'].sum()) * 100
 
@@ -521,7 +527,7 @@ elif app_mode == "📊 2. データ解析":
                 if int_options_2way and anova_success:
                     st.header(f"3. 交互作用図 - 【{eval_col}】")
                     if len(s_ints) > len(int_options_2way):
-                        st.info("※ グラフ描画は2因子の交互作用のみ対応しています（3因子以上の交互作用を選択した場合はグラフ化をスキップします）。")
+                        st.info("※ グラフ描画は2因子の交互作用のみ対応しています(3因子以上の交互作用を選択した場合はグラフ化をスキップします)。")
                     
                     selected_int_plot = st.selectbox("グラフ化する交互作用", int_options_2way, key=f"int_sel_{t_col}")
                     plot_x, plot_hue = selected_int_plot.split(" × ")
