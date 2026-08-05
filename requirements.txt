@@ -1,10 +1,9 @@
-streamlit==1.35.0
+streamlit
 numpy<2.0.0
 pandas
 scipy
 matplotlib
 seaborn
 statsmodels
-japanize-matplotlib-plus
+japanize-matplotlib
 openpyxl
-
