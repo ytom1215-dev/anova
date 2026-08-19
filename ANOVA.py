@@ -377,7 +377,7 @@ elif app_mode == "📊 2. データ解析":
                     val_prop = np.clip(df_eval[t_col] / 100.0, 0.0, 1.0)
                     df_eval[eval_col] = np.degrees(np.arcsin(np.sqrt(val_prop)))
 
-              for f in factor_cols:
+            for f in factor_cols:
                     df_eval[f] = df_eval[f].astype(str)
 
                 # 【追加・修正】Type 3 ANOVAの計算をSPSS/Rと一致させるため「Sum（直交対比）」を指定
