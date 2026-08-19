@@ -377,12 +377,14 @@ elif app_mode == "📊 2. データ解析":
                     val_prop = np.clip(df_eval[t_col] / 100.0, 0.0, 1.0)
                     df_eval[eval_col] = np.degrees(np.arcsin(np.sqrt(val_prop)))
 
-                for f in factor_cols:
+              for f in factor_cols:
                     df_eval[f] = df_eval[f].astype(str)
 
-                formula_terms = [f'C(Q("{f}"))' for f in factor_cols]
+                # 【追加・修正】Type 3 ANOVAの計算をSPSS/Rと一致させるため「Sum（直交対比）」を指定
+                from patsy.contrasts import Sum
+                formula_terms = [f'C(Q("{f}"), Sum)' for f in factor_cols]
                 for combo in selected_interactions_parsed:
-                    term = ":".join([f'C(Q("{c}"))' for c in combo])
+                    term = ":".join([f'C(Q("{c}"), Sum)' for c in combo])
                     formula_terms.append(term)
                 formula = f'Q("{eval_col}") ~ ' + ' + '.join(formula_terms)
 
