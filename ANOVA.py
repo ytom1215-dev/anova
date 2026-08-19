@@ -47,9 +47,8 @@ set_japanese_font()
 def get_cld_letters(groups_sorted, tukey_df):
     """
     Bron-Kerboschアルゴリズムを用いて極大クリークを抽出し、
-    統計学的に正しいCLD（Compact Letter Display）を生成する（無限ループ修正版）
+    統計学的に正しいCLD（Compact Letter Display）を生成する
     """
-    # 1. 有意差のない（ns）ペアを隣接関係として保持（自己ループは含めない）
     adj = {g: set() for g in groups_sorted}
     for _, row in tukey_df.iterrows():
         g1, g2 = str(row['group1']), str(row['group2'])
@@ -58,7 +57,6 @@ def get_cld_letters(groups_sorted, tukey_df):
                 adj[g1].add(g2)
                 adj[g2].add(g1)
 
-    # 2. Bron-Kerbosch法による極大クリークの探索
     cliques = []
     def bron_kerbosch(r, p, x):
         if not p and not x:
@@ -66,17 +64,13 @@ def get_cld_letters(groups_sorted, tukey_df):
             return
         for v in list(p):
             n_v = adj[v]
-            # 再帰時に p & n_v / x & n_v とすることで、自分自身(v)が確実に排除され、無限ループを回避します
             bron_kerbosch(r | {v}, p & n_v, x & n_v)
             p.remove(v)
             x.add(v)
 
     bron_kerbosch(set(), set(groups_sorted), set())
-
-    # 3. クリークを平均値順（groups_sortedのインデックス順）にソート
     cliques.sort(key=lambda c: min(groups_sorted.index(g) for g in c))
 
-    # 4. 各グループへのアルファベットの割り当て
     letters = {g: [] for g in groups_sorted}
     for idx, clique in enumerate(cliques):
         letter = chr(ord('a') + (idx % 26))
@@ -172,7 +166,6 @@ def build_multi_excel_report(results_dict, ss_type):
             ws_tukey.cell(row=2, column=1, value=f"変換方法: {res['trans_type']}")
             ws_tukey.cell(row=3, column=1, value="※ 同じ文字を持つ水準間に有意差なし（Tukey法, α=0.05）")
 
-    # 他のシートが追加されていればダミーを削除し、なければダミーをエラー通知用にしてIndexErrorを回避
     if len(wb.sheetnames) > 1:
         wb.remove(ws_dummy)
     else:
@@ -401,13 +394,18 @@ elif app_mode == "📊 2. データ解析":
                     model = ols(formula, data=df_eval).fit()
                     anova_res = anova_lm(model, typ=ss_type)
 
-                    # Type 3 では切片(Intercept)の行が結果に含まれるが、
-                    # 処理効果による変動ではないため、寄与率(%)の算出・表示対象から除外する
-                    # （Type 2 など Intercept 行が存在しない場合は errors='ignore' により何もしない）
                     anova_res = anova_res.drop(index='Intercept', errors='ignore')
 
                     anova_res['mean_sq'] = anova_res['sum_sq'] / anova_res['df']
-                    anova_res['寄与率(%)'] = (anova_res['sum_sq'] / anova_res['sum_sq'].sum()) * 100
+
+                    # 【修正ポイント】寄与率の分母をデータ全体のSSTから計算
+                    sst = ((df_eval[eval_col] - df_eval[eval_col].mean()) ** 2).sum()
+                    anova_res['寄与率(%)'] = (anova_res['sum_sq'] / sst) * 100
+
+                    # 【修正ポイント】偏寄与率（Partial Eta-squared）を追加
+                    ss_residual = anova_res.loc['Residual', 'sum_sq']
+                    anova_res['偏寄与率(%)'] = (anova_res['sum_sq'] / (anova_res['sum_sq'] + ss_residual)) * 100
+                    anova_res.loc['Residual', '偏寄与率(%)'] = np.nan
 
                     def get_sig(p):
                         if pd.isna(p): return ""
@@ -416,8 +414,10 @@ elif app_mode == "📊 2. データ解析":
                         return "ns"
 
                     anova_res['判定'] = anova_res['PR(>F)'].apply(get_sig)
-                    report_anova = anova_res[['df', 'sum_sq', 'mean_sq', 'F', 'PR(>F)', '判定', '寄与率(%)']].copy()
-                    report_anova.columns = ['自由度', '平方和(SS)', '平均平方(MS)', 'F値', 'p値', '判定', '寄与率(%)']
+                    
+                    # カラム構成を更新
+                    report_anova = anova_res[['df', 'sum_sq', 'mean_sq', 'F', 'PR(>F)', '判定', '寄与率(%)', '偏寄与率(%)']].copy()
+                    report_anova.columns = ['自由度', '平方和(SS)', '平均平方(MS)', 'F値', 'p値', '判定', '寄与率(%)', '偏寄与率(%)']
                     anova_success = True
                 except Exception as e:
                     st.error(f"【{t_col}】 分散分析エラー: {e}")
@@ -494,10 +494,12 @@ elif app_mode == "📊 2. データ解析":
                     st.header(f"1. 分散分析表 - 【{eval_col}】")
                     if "変換なし" not in trans_type:
                         st.warning(f"💡 適用したデータ変換: {trans_type}")
+                    
+                    # 【修正ポイント】フォーマット指定に偏寄与率を追加
                     st.dataframe(
                         report_anova.style.format({
                             '自由度': '{:.0f}', '平方和(SS)': '{:.1f}', '平均平方(MS)': '{:.1f}',
-                            'F値': '{:.3f}', 'p値': '{:.4f}', '寄与率(%)': '{:.2f}'
+                            'F値': '{:.3f}', 'p値': '{:.4f}', '寄与率(%)': '{:.2f}', '偏寄与率(%)': '{:.2f}'
                         }).apply(lambda x: ['background-color: #ffcccc' if v in ['*', '**'] else '' for v in x], subset=['判定']),
                         use_container_width=True
                     )
@@ -561,7 +563,10 @@ elif app_mode == "📊 2. データ解析":
                     for idx, row in report_anova.iterrows():
                         if idx == "Residual": continue
                         clean = str(idx).replace('C(Q("', '').replace('"))', '').replace(':', ' × ')
-                        lines.append(f"- {clean}: p={row['p値']:.4f} [{row['判定'] or 'ns'}], 寄与率={row['寄与率(%)']:.1f}%")
+                        
+                        # 【修正ポイント】AIプロンプト出力にも偏寄与率を追加
+                        lines.append(f"- {clean}: p={row['p値']:.4f} [{row['判定'] or 'ns'}], 寄与率={row['寄与率(%)']:.1f}%, 偏寄与率={row['偏寄与率(%)']:.1f}%")
+                    
                     lines += ["", "### 【多重比較結果（Tukey法）】"]
                     for factor, dd in tukey_results.items():
                         lines.append(f"\n▼ {factor}:")
