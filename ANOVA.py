@@ -14,6 +14,7 @@ import io
 import itertools
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from patsy.contrasts import Sum  # Type 3 ANOVAを正しく計算するための設定
 
 try:
     from help_text import render_help_section
@@ -145,7 +146,7 @@ def build_multi_excel_report(results_dict, ss_type):
         ws_anova.append(["要因"] + list(report_anova.columns))
         
         for idx, row in report_anova.iterrows():
-            clean_idx = str(idx).replace('C(Q("', '').replace('"))', '').replace(':', ' × ')
+            clean_idx = str(idx).replace('C(Q("', '').replace('"), Sum)', '').replace(':', ' × ')
             ws_anova.append([clean_idx] + [row[c] for c in report_anova.columns])
         
         apply_formatting(ws_anova, is_anova=True)
@@ -200,7 +201,7 @@ if app_mode == "📝 1. 調査様式作成":
         st.markdown("使用する要因の名前と水準を入力してください。**（不要な要因欄は空欄のままにすると自動で無視されます）**")
         
         factor_inputs = []
-        for i in range(1, 6): # 最大5要因まで動的に対応
+        for i in range(1, 6):
             col1, col2 = st.columns(2)
             with col1:
                 default_name = "品種" if i == 1 else ("施肥量" if i == 2 else "")
@@ -377,11 +378,10 @@ elif app_mode == "📊 2. データ解析":
                     val_prop = np.clip(df_eval[t_col] / 100.0, 0.0, 1.0)
                     df_eval[eval_col] = np.degrees(np.arcsin(np.sqrt(val_prop)))
 
-            for f in factor_cols:
+                for f in factor_cols:
                     df_eval[f] = df_eval[f].astype(str)
 
-                # 【追加・修正】Type 3 ANOVAの計算をSPSS/Rと一致させるため「Sum（直交対比）」を指定
-                from patsy.contrasts import Sum
+                # 【重要修正】Type 3 ANOVAの計算をSPSS/Rと一致させるため「Sum（直交対比）」を指定
                 formula_terms = [f'C(Q("{f}"), Sum)' for f in factor_cols]
                 for combo in selected_interactions_parsed:
                     term = ":".join([f'C(Q("{c}"), Sum)' for c in combo])
@@ -400,11 +400,11 @@ elif app_mode == "📊 2. データ解析":
 
                     anova_res['mean_sq'] = anova_res['sum_sq'] / anova_res['df']
 
-                    # 【修正ポイント】寄与率の分母をデータ全体のSSTから計算
+                    # 寄与率の分母をデータ全体のSSTから計算
                     sst = ((df_eval[eval_col] - df_eval[eval_col].mean()) ** 2).sum()
                     anova_res['寄与率(%)'] = (anova_res['sum_sq'] / sst) * 100
 
-                    # 【修正ポイント】偏寄与率（Partial Eta-squared）を追加
+                    # 偏寄与率（Partial Eta-squared）を追加計算
                     ss_residual = anova_res.loc['Residual', 'sum_sq']
                     anova_res['偏寄与率(%)'] = (anova_res['sum_sq'] / (anova_res['sum_sq'] + ss_residual)) * 100
                     anova_res.loc['Residual', '偏寄与率(%)'] = np.nan
@@ -417,7 +417,6 @@ elif app_mode == "📊 2. データ解析":
 
                     anova_res['判定'] = anova_res['PR(>F)'].apply(get_sig)
                     
-                    # カラム構成を更新
                     report_anova = anova_res[['df', 'sum_sq', 'mean_sq', 'F', 'PR(>F)', '判定', '寄与率(%)', '偏寄与率(%)']].copy()
                     report_anova.columns = ['自由度', '平方和(SS)', '平均平方(MS)', 'F値', 'p値', '判定', '寄与率(%)', '偏寄与率(%)']
                     anova_success = True
@@ -496,8 +495,6 @@ elif app_mode == "📊 2. データ解析":
                     st.header(f"1. 分散分析表 - 【{eval_col}】")
                     if "変換なし" not in trans_type:
                         st.warning(f"💡 適用したデータ変換: {trans_type}")
-                    
-                    # 【修正ポイント】フォーマット指定に偏寄与率を追加
                     st.dataframe(
                         report_anova.style.format({
                             '自由度': '{:.0f}', '平方和(SS)': '{:.1f}', '平均平方(MS)': '{:.1f}',
@@ -564,9 +561,7 @@ elif app_mode == "📊 2. データ解析":
                     lines += ["", "### 【分散分析結果】", "※ **(1%有意), *(5%有意), ns(有意差なし)"]
                     for idx, row in report_anova.iterrows():
                         if idx == "Residual": continue
-                        clean = str(idx).replace('C(Q("', '').replace('"))', '').replace(':', ' × ')
-                        
-                        # 【修正ポイント】AIプロンプト出力にも偏寄与率を追加
+                        clean = str(idx).replace('C(Q("', '').replace('"), Sum)', '').replace(':', ' × ')
                         lines.append(f"- {clean}: p={row['p値']:.4f} [{row['判定'] or 'ns'}], 寄与率={row['寄与率(%)']:.1f}%, 偏寄与率={row['偏寄与率(%)']:.1f}%")
                     
                     lines += ["", "### 【多重比較結果（Tukey法）】"]
